@@ -164,27 +164,93 @@ void Tensor::debug() const {
 }
 
 bool Tensor::isContiguous() const {
-    TO_BE_IMPLEMENTED();
+    // REF: https://github.com/pytorch/pytorch/blob/7754b5517de5ebd1a04f5224c1a1e52dadd9b6ef/torch/_prims_common/__init__.py#L300
+    // Tensors are contigous when they have no elements, one elemnt
+    // or when they have "nested" strides.
+    if (this->numel() <= 1) {
+        return true;
+    }
+
+    const auto &shape = this->shape();
+    const auto &strides = this->strides();
+    size_t ndim = this->ndim();
+    ptrdiff_t expected_stride = 1;
+
+    // refer to the implementation in constructor
+    for (size_t i = 1; i <= ndim; ++i) {
+        size_t idx = ndim - i;
+        if (shape[idx] == 1) {
+            continue;
+        }
+        if (strides[idx] != expected_stride) {
+            return false;
+        }
+        expected_stride *= static_cast<ptrdiff_t>(shape[idx]);
+    }
     return true;
 }
 
 tensor_t Tensor::permute(const std::vector<size_t> &order) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    size_t ndim = order.size();
+    std::vector<size_t> new_shape(ndim);
+    std::vector<ptrdiff_t> new_strides(ndim);
+
+    const auto &shape = this->shape();
+    const auto &strides = this->strides();
+
+    for (size_t i = 0; i < ndim; ++i) {
+        new_shape[i] = shape[order[i]];
+        new_strides[i] = strides[order[i]];
+    }
+
+    TensorMeta new_meta{this->dtype(), new_shape, new_strides};
+    return std::shared_ptr<Tensor>(new Tensor(new_meta, this->_storage, this->_offset));
 }
 
 tensor_t Tensor::view(const std::vector<size_t> &shape) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    if (this->numel() !=
+        static_cast<size_t>(std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<size_t>()))) {
+        throw std::runtime_error("view: numel can't match.");
+    }
+    if (!this->isContiguous()) {
+        throw std::runtime_error("view: this tensor is not contiguous.");
+    }
+
+    size_t ndim = shape.size();
+    std::vector<ptrdiff_t> strides(ndim);
+
+    size_t stride = 1;
+    for (size_t i = 1; i <= ndim; i++) {
+        strides[ndim - i] = stride;
+        stride *= shape[ndim - i];
+    }
+
+    TensorMeta new_meta{this->dtype(), shape, strides};
+    return std::shared_ptr<Tensor>(new Tensor(new_meta, this->_storage, this->_offset));
 }
 
 tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    const auto &strides = this->strides();
+    size_t offset = start * strides[dim] * this->elementSize();
+
+    TensorMeta new_meta(_meta);
+    new_meta.shape[dim] = end - start;
+    return std::shared_ptr<Tensor>(new Tensor(new_meta, _storage, this->_offset + offset));
 }
 
 void Tensor::load(const void *src_) {
-    TO_BE_IMPLEMENTED();
+    if (src_ == nullptr) return;
+    core::context().setDevice(this->deviceType(), this->deviceId());
+
+    // check tensor device
+    llaisysMemcpyKind_t kind = this->deviceType()
+        == LLAISYS_DEVICE_CPU ? LLAISYS_MEMCPY_H2H : LLAISYS_MEMCPY_H2D;
+    size_t bytes = this->numel() * this->elementSize();
+
+    // memcpy from host to tensor
+    core::context().runtime().api()->memcpy_sync(
+        this->data(), src_, bytes, kind
+    );
 }
 
 tensor_t Tensor::contiguous() const {
