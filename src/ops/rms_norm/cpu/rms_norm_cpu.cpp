@@ -11,13 +11,12 @@ void rms_norm_(T *out, const T *in, const T *weight, float eps, size_t num_rows,
         float sum = 0.0;
         for (size_t j = 0; j < dim; ++j) {
             sum += llaisys::utils::cast<float>(in[i * dim + j]) *
-                llaisys::utils::cast<float>(in[i * dim + j])
-            ;
+                llaisys::utils::cast<float>(in[i * dim + j]);
         }
-        float rms = sqrt(eps + sum / dim);
+        float inv_rms = 1.0f / sqrt(eps + sum / dim);
         for (size_t j = 0; j < dim; ++j) {
             out[i * dim + j] = llaisys::utils::cast<T>(
-                llaisys::utils::cast<float>(in[i * dim + j]) / rms
+                llaisys::utils::cast<float>(in[i * dim + j]) * inv_rms
                 * llaisys::utils::cast<float>(weight[j])
             );
         }
